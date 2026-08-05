@@ -221,7 +221,8 @@ async function loadPlaces() {
         carouselTrack.style.display = 'none';
         
         // Get data from Firebase Realtime Database
-        const snapshot = await database.ref('places').once('value');
+        // Get data from Firebase Realtime Database (root level)
+const snapshot = await database.ref('/').once('value');
         const data = snapshot.val();
         
         if (data) {
