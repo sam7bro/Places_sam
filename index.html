@@ -7,7 +7,12 @@
     <link rel="stylesheet" href="style.css">
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0">
     
-    <!-- Google AdSense Test Ad -->
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-storage-compat.js"></script>
+    
+    <!-- Google AdSense -->
     <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-3940256099942544" crossorigin="anonymous"></script>
 </head>
 <body>
@@ -28,7 +33,7 @@
             <h1>404</h1>
             <h2>Page Not Found</h2>
             <p>The page you're looking for doesn't exist or you're currently offline.</p>
-            <p class="offline-sub">Please check your internet connection and try again.</</p>
+            <p class="offline-sub">Please check your internet connection and try again.</p>
             <button class="btn btn-retry" onclick="location.reload()">
                 <span class="material-symbols-outlined">refresh</span>
                 Try Again
@@ -58,7 +63,7 @@
         <div class="search-results" id="searchResults"></div>
     </section>
 
-    <!-- ========== HERO GAP (UNIVERSITY LOGO HERE) ========== -->
+    <!-- ========== HERO GAP ========== -->
     <div class="hero-gap">
         <img src="images/university-logo.png" alt="Sri Krishnadevaraya University" class="university-logo">
     </div>
