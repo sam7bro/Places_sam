@@ -3,7 +3,7 @@
 // ============================================
 
 // ============================================
-// FIREBASE CONFIGURATION - YOUR CONFIG HERE
+// FIREBASE CONFIGURATION
 // ============================================
 const firebaseConfig = {
     apiKey: "AIzaSyB28AzpT9kubVmwOcVLOCUlQz6EcxYOGF8",
@@ -32,6 +32,7 @@ let tempEditImages = [];
 let isDragging = false;
 let startX = 0;
 let scrollLeftStart = 0;
+let animationId = null;
 let isAutoScrolling = true;
 
 // ============================================
@@ -85,7 +86,6 @@ const imageViewerClose = document.getElementById('imageViewerClose');
 // SECURITY: BLOCK DEV TOOLS
 // ============================================
 (function blockDevTools() {
-    // Block F12
     document.addEventListener('keydown', function(e) {
         if (e.key === 'F12' || 
             (e.ctrlKey && e.shiftKey && (e.key === 'I' || e.key === 'i')) ||
@@ -97,14 +97,12 @@ const imageViewerClose = document.getElementById('imageViewerClose');
         }
     });
 
-    // Block right-click
     document.addEventListener('contextmenu', function(e) {
         e.preventDefault();
         showToast('🔒 Right-click is disabled.', 'warning');
         return false;
     });
 
-    // Block Ctrl+S (Save)
     document.addEventListener('keydown', function(e) {
         if (e.ctrlKey && (e.key === 's' || e.key === 'S')) {
             e.preventDefault();
@@ -113,7 +111,6 @@ const imageViewerClose = document.getElementById('imageViewerClose');
         }
     });
 
-    // Anti-debugging detection
     let element = new Image();
     Object.defineProperty(element, 'id', {
         get: function() {
@@ -220,9 +217,8 @@ async function loadPlaces() {
         skeletonTrack.style.display = 'flex';
         carouselTrack.style.display = 'none';
         
-        // Get data from Firebase Realtime Database
-        // Get data from Firebase Realtime Database (root level)
-const snapshot = await database.ref('/').once('value');
+        // Get data from Firebase root (since your data is at root)
+        const snapshot = await database.ref('/').once('value');
         const data = snapshot.val();
         
         if (data) {
@@ -235,7 +231,7 @@ const snapshot = await database.ref('/').once('value');
             skeletonTrack.style.display = 'none';
             carouselTrack.style.display = 'flex';
             setupDragScroll();
-            showToast('✅ Places loaded successfully!', 'success');
+            showToast('✅ Places loaded from Firebase!', 'success');
         } else {
             throw new Error('No data found');
         }
@@ -252,15 +248,13 @@ const snapshot = await database.ref('/').once('value');
 // ============================================
 async function updatePlaceInFirebase(placeId, updatedData) {
     try {
-        // Find the place in the array
         const placeIndex = places.findIndex(p => p.id === placeId);
         if (placeIndex === -1) return false;
         
-        // Update local data
         places[placeIndex] = { ...places[placeIndex], ...updatedData };
         
-        // Update in Firebase
-        await database.ref(`places/${placeId}`).update(updatedData);
+        // Update in Firebase at the correct index
+        await database.ref(`/${placeIndex}`).update(updatedData);
         
         return true;
     } catch (error) {
@@ -274,7 +268,6 @@ async function updatePlaceInFirebase(placeId, updatedData) {
 // ============================================
 function renderCarousel() {
     carouselTrack.innerHTML = '';
-    // Create multiple copies for infinite scroll feel
     const allPlaces = [...places, ...places, ...places];
     allPlaces.forEach(place => {
         const card = createPlaceCard(place);
