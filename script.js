@@ -2,6 +2,24 @@
 // DISCOVER PLACES - MAIN JAVASCRIPT
 // ============================================
 
+// ============================================
+// FIREBASE CONFIGURATION - YOUR CONFIG HERE
+// ============================================
+const firebaseConfig = {
+    apiKey: "AIzaSyB28AzpT9kubVmwOcVLOCUlQz6EcxYOGF8",
+    authDomain: "file-collector01.firebaseapp.com",
+    databaseURL: "https://file-collector01-default-rtdb.firebaseio.com",
+    projectId: "file-collector01",
+    storageBucket: "file-collector01.firebasestorage.app",
+    messagingSenderId: "685538831739",
+    appId: "1:685538831739:web:ea00a889c5dea8095221de"
+};
+
+// Initialize Firebase
+firebase.initializeApp(firebaseConfig);
+const database = firebase.database();
+const storage = firebase.storage();
+
 let places = [];
 let originalPlaces = [];
 let currentPlaceForQR = null;
@@ -14,7 +32,6 @@ let tempEditImages = [];
 let isDragging = false;
 let startX = 0;
 let scrollLeftStart = 0;
-let animationId = null;
 let isAutoScrolling = true;
 
 // ============================================
@@ -65,6 +82,48 @@ const imageViewerImg = document.getElementById('imageViewerImg');
 const imageViewerClose = document.getElementById('imageViewerClose');
 
 // ============================================
+// SECURITY: BLOCK DEV TOOLS
+// ============================================
+(function blockDevTools() {
+    // Block F12
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'F12' || 
+            (e.ctrlKey && e.shiftKey && (e.key === 'I' || e.key === 'i')) ||
+            (e.ctrlKey && e.shiftKey && (e.key === 'J' || e.key === 'j')) ||
+            (e.ctrlKey && (e.key === 'U' || e.key === 'u'))) {
+            e.preventDefault();
+            showToast('🔒 Developer tools are disabled.', 'warning');
+            return false;
+        }
+    });
+
+    // Block right-click
+    document.addEventListener('contextmenu', function(e) {
+        e.preventDefault();
+        showToast('🔒 Right-click is disabled.', 'warning');
+        return false;
+    });
+
+    // Block Ctrl+S (Save)
+    document.addEventListener('keydown', function(e) {
+        if (e.ctrlKey && (e.key === 's' || e.key === 'S')) {
+            e.preventDefault();
+            showToast('🔒 Saving is disabled.', 'warning');
+            return false;
+        }
+    });
+
+    // Anti-debugging detection
+    let element = new Image();
+    Object.defineProperty(element, 'id', {
+        get: function() {
+            showToast('🔒 Developer tools detected!', 'error');
+        }
+    });
+    console.log('%c', element);
+})();
+
+// ============================================
 // TOAST SYSTEM
 // ============================================
 function showToast(message, type = 'info') {
@@ -88,11 +147,11 @@ function showToast(message, type = 'info') {
 // ============================================
 // OFFLINE DETECTION
 // ============================================
-// function showOffline() { offlineOverlay.classList.add('active'); }
-// function hideOffline() { offlineOverlay.classList.remove('active'); }
-// window.addEventListener('online', () => { hideOffline(); showToast('Back online!', 'success'); });
-// window.addEventListener('offline', showOffline);
-// if (!navigator.onLine) showOffline();
+function showOffline() { offlineOverlay.classList.add('active'); }
+function hideOffline() { offlineOverlay.classList.remove('active'); }
+window.addEventListener('online', () => { hideOffline(); showToast('Back online!', 'success'); });
+window.addEventListener('offline', showOffline);
+if (!navigator.onLine) showOffline();
 
 // ============================================
 // IMAGE FULL VIEWER
@@ -124,6 +183,15 @@ document.addEventListener('keydown', (e) => {
 // ============================================
 function getStorageKey(placeId) { return `place_edit_${placeId}`; }
 
+function saveUserEdits(placeId, description, images) {
+    const editData = { description, images, updatedAt: new Date().toISOString() };
+    localStorage.setItem(getStorageKey(placeId), JSON.stringify(editData));
+}
+
+function resetUserEdits(placeId) {
+    localStorage.removeItem(getStorageKey(placeId));
+}
+
 function loadUserEdits() {
     places.forEach((place, index) => {
         const saved = localStorage.getItem(getStorageKey(place.id));
@@ -144,36 +212,59 @@ function loadUserEdits() {
     });
 }
 
-function saveUserEdits(placeId, description, images) {
-    const editData = { description, images, updatedAt: new Date().toISOString() };
-    localStorage.setItem(getStorageKey(placeId), JSON.stringify(editData));
-}
-
-function resetUserEdits(placeId) {
-    localStorage.removeItem(getStorageKey(placeId));
-}
-
 // ============================================
-// LOAD PLACES DATA
+// LOAD PLACES FROM FIREBASE
 // ============================================
 async function loadPlaces() {
     try {
-        const response = await fetch('data/places.json');
-        if (!response.ok) throw new Error('Failed to fetch');
-        places = await response.json();
-        originalPlaces = JSON.parse(JSON.stringify(places));
-        loadUserEdits();
+        skeletonTrack.style.display = 'flex';
+        carouselTrack.style.display = 'none';
         
-        setTimeout(() => {
+        // Get data from Firebase Realtime Database
+        const snapshot = await database.ref('places').once('value');
+        const data = snapshot.val();
+        
+        if (data) {
+            // Convert object to array
+            places = Object.values(data);
+            originalPlaces = JSON.parse(JSON.stringify(places));
+            loadUserEdits();
+            
             renderCarousel();
             skeletonTrack.style.display = 'none';
             carouselTrack.style.display = 'flex';
             setupDragScroll();
-        }, 1500);
+            showToast('✅ Places loaded successfully!', 'success');
+        } else {
+            throw new Error('No data found');
+        }
     } catch (error) {
         console.error('Error loading places:', error);
         skeletonTrack.style.display = 'none';
+        showToast('⚠️ Failed to load places. Please refresh.', 'error');
         showOffline();
+    }
+}
+
+// ============================================
+// UPDATE PLACE IN FIREBASE
+// ============================================
+async function updatePlaceInFirebase(placeId, updatedData) {
+    try {
+        // Find the place in the array
+        const placeIndex = places.findIndex(p => p.id === placeId);
+        if (placeIndex === -1) return false;
+        
+        // Update local data
+        places[placeIndex] = { ...places[placeIndex], ...updatedData };
+        
+        // Update in Firebase
+        await database.ref(`places/${placeId}`).update(updatedData);
+        
+        return true;
+    } catch (error) {
+        console.error('Error updating place:', error);
+        return false;
     }
 }
 
@@ -225,7 +316,6 @@ function createPlaceCard(place) {
 function setupDragScroll() {
     const container = carouselContainer;
     
-    // Pause auto-scroll when user interacts
     function pauseAutoScroll() {
         isAutoScrolling = false;
         carouselTrack.style.animationPlayState = 'paused';
@@ -234,14 +324,12 @@ function setupDragScroll() {
     function resumeAutoScroll() {
         isAutoScrolling = true;
         carouselTrack.style.animationPlayState = 'running';
-        // Reset to animation-based scrolling
         carouselTrack.style.transform = '';
         carouselTrack.style.transition = '';
     }
     
-    // Mouse events
     container.addEventListener('mousedown', (e) => {
-        if (e.target.closest('button')) return; // Don't drag when clicking buttons
+        if (e.target.closest('button')) return;
         isDragging = true;
         pauseAutoScroll();
         startX = e.pageX - container.offsetLeft;
@@ -255,7 +343,7 @@ function setupDragScroll() {
         if (!isDragging) return;
         e.preventDefault();
         const x = e.pageX - container.offsetLeft;
-        const walk = (x - startX) * 2; // Multiply for faster scroll
+        const walk = (x - startX) * 2;
         container.scrollLeft = scrollLeftStart - walk;
     });
     
@@ -264,8 +352,6 @@ function setupDragScroll() {
         isDragging = false;
         carouselTrack.style.cursor = 'grab';
         container.style.cursor = 'grab';
-        
-        // Resume auto-scroll after 2 seconds of inactivity
         clearTimeout(resumeAutoScroll.timeout);
         resumeAutoScroll.timeout = setTimeout(resumeAutoScroll, 2000);
     });
@@ -280,7 +366,6 @@ function setupDragScroll() {
         }
     });
     
-    // Touch events for mobile
     container.addEventListener('touchstart', (e) => {
         if (e.target.closest('button')) return;
         isDragging = true;
@@ -302,11 +387,9 @@ function setupDragScroll() {
         resumeAutoScroll.timeout = setTimeout(resumeAutoScroll, 3000);
     });
     
-    // Set initial cursor
     carouselTrack.style.cursor = 'grab';
     container.style.cursor = 'grab';
     
-    // Hover pause
     container.addEventListener('mouseenter', () => {
         if (!isDragging) {
             carouselTrack.style.animationPlayState = 'paused';
@@ -529,7 +612,6 @@ function isDuplicateImage(newSrc) {
     return tempEditImages.some(img => img && img === newSrc);
 }
 
-// File input handlers
 document.querySelectorAll('.edit-file-input').forEach(input => {
     input.addEventListener('change', function() {
         const slotIndex = parseInt(this.getAttribute('data-slot'));
@@ -539,25 +621,22 @@ document.querySelectorAll('.edit-file-input').forEach(input => {
         const reader = new FileReader();
         reader.onload = function(e) {
             const newSrc = e.target.result;
-            
-            // Check for duplicate
             if (isDuplicateImage(newSrc)) {
                 showToast('⚠️ This image is already added to another slot!', 'warning');
                 return;
             }
-            
             tempEditImages[slotIndex] = newSrc;
             renderEditImageSlots();
             updateSlotStates();
             showToast('📷 Image added successfully!', 'success');
         };
         reader.readAsDataURL(file);
-        this.value = ''; // Reset so same file can be re-selected
+        this.value = '';
     });
 });
 
 // Save
-btnSave.addEventListener('click', () => {
+btnSave.addEventListener('click', async () => {
     if (!currentPlaceForDetails) return;
     
     const newDescription = editDescription.value.trim();
@@ -566,27 +645,31 @@ btnSave.addEventListener('click', () => {
         return;
     }
     
-    const placeIndex = places.findIndex(p => p.id === currentPlaceForDetails.id);
-    if (placeIndex !== -1) {
-        const cleanImages = [];
-        tempEditImages.forEach(img => { if (img) cleanImages.push(img); });
-        
-        places[placeIndex].fullDescription = newDescription;
-        places[placeIndex].shortDescription = newDescription.substring(0, 100) + '...';
-        places[placeIndex].images = cleanImages;
-    }
-    
     const cleanImages = [];
     tempEditImages.forEach(img => { if (img) cleanImages.push(img); });
     
-    saveUserEdits(currentPlaceForDetails.id, newDescription, cleanImages);
-    currentPlaceForDetails = places[placeIndex];
-    refreshViewMode(currentPlaceForDetails);
-    renderCarousel();
-    setupDragScroll(); // Re-setup drag after re-render
-    viewMode.style.display = 'block';
-    editMode.style.display = 'none';
-    showToast('✅ Changes saved successfully!', 'success');
+    const placeId = currentPlaceForDetails.id;
+    const updatedData = {
+        fullDescription: newDescription,
+        shortDescription: newDescription.substring(0, 100) + '...',
+        images: cleanImages
+    };
+    
+    const success = await updatePlaceInFirebase(placeId, updatedData);
+    
+    if (success) {
+        const placeIndex = places.findIndex(p => p.id === placeId);
+        currentPlaceForDetails = places[placeIndex];
+        refreshViewMode(currentPlaceForDetails);
+        renderCarousel();
+        setupDragScroll();
+        viewMode.style.display = 'block';
+        editMode.style.display = 'none';
+        saveUserEdits(placeId, newDescription, cleanImages);
+        showToast('✅ Changes saved to Firebase!', 'success');
+    } else {
+        showToast('❌ Failed to save changes. Please try again.', 'error');
+    }
 });
 
 // Cancel
@@ -597,20 +680,32 @@ btnCancel.addEventListener('click', () => {
 });
 
 // Reset
-btnReset.addEventListener('click', () => {
+btnReset.addEventListener('click', async () => {
     if (!currentPlaceForDetails || !confirm('Reset this place to original content? This cannot be undone.')) return;
     const original = originalPlaces.find(p => p.id === currentPlaceForDetails.id);
     if (!original) return;
-    const placeIndex = places.findIndex(p => p.id === currentPlaceForDetails.id);
-    places[placeIndex] = JSON.parse(JSON.stringify(original));
-    resetUserEdits(currentPlaceForDetails.id);
-    currentPlaceForDetails = places[placeIndex];
-    refreshViewMode(currentPlaceForDetails);
-    renderCarousel();
-    setupDragScroll(); // Re-setup drag after re-render
-    viewMode.style.display = 'block';
-    editMode.style.display = 'none';
-    showToast('🔄 Reset to original!', 'info');
+    
+    const placeId = currentPlaceForDetails.id;
+    const resetData = {
+        fullDescription: original.fullDescription,
+        shortDescription: original.shortDescription,
+        images: original.images || []
+    };
+    
+    const success = await updatePlaceInFirebase(placeId, resetData);
+    
+    if (success) {
+        resetUserEdits(placeId);
+        currentPlaceForDetails = places.find(p => p.id === placeId);
+        refreshViewMode(currentPlaceForDetails);
+        renderCarousel();
+        setupDragScroll();
+        viewMode.style.display = 'block';
+        editMode.style.display = 'none';
+        showToast('🔄 Reset to original!', 'info');
+    } else {
+        showToast('❌ Failed to reset. Please try again.', 'error');
+    }
 });
 
 // ============================================
