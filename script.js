@@ -32,8 +32,8 @@ let tempEditImages = [];
 let isDragging = false;
 let startX = 0;
 let scrollLeftStart = 0;
-let animationId = null;
 let isAutoScrolling = true;
+let dragTimeout = null;
 
 // ============================================
 // DOM ELEMENTS
@@ -77,13 +77,12 @@ const btnCancel = document.getElementById('btnCancel');
 const btnReset = document.getElementById('btnReset');
 
 const offlineOverlay = document.getElementById('offlineOverlay');
-const toastContainer = document.getElementById('toastContainer');
 const imageViewerOverlay = document.getElementById('imageViewerOverlay');
 const imageViewerImg = document.getElementById('imageViewerImg');
 const imageViewerClose = document.getElementById('imageViewerClose');
 
 // ============================================
-// SECURITY: BLOCK DEV TOOLS
+// SECURITY: BLOCK DEV TOOLS (Silent - No Toasts)
 // ============================================
 (function blockDevTools() {
     document.addEventListener('keydown', function(e) {
@@ -92,61 +91,29 @@ const imageViewerClose = document.getElementById('imageViewerClose');
             (e.ctrlKey && e.shiftKey && (e.key === 'J' || e.key === 'j')) ||
             (e.ctrlKey && (e.key === 'U' || e.key === 'u'))) {
             e.preventDefault();
-            showToast('🔒 Developer tools are disabled.', 'warning');
             return false;
         }
     });
 
     document.addEventListener('contextmenu', function(e) {
         e.preventDefault();
-        showToast('🔒 Right-click is disabled.', 'warning');
         return false;
     });
 
     document.addEventListener('keydown', function(e) {
         if (e.ctrlKey && (e.key === 's' || e.key === 'S')) {
             e.preventDefault();
-            showToast('🔒 Saving is disabled.', 'warning');
             return false;
         }
     });
-
-    let element = new Image();
-    Object.defineProperty(element, 'id', {
-        get: function() {
-            showToast('🔒 Developer tools detected!', 'error');
-        }
-    });
-    console.log('%c', element);
 })();
-
-// ============================================
-// TOAST SYSTEM
-// ============================================
-function showToast(message, type = 'info') {
-    const toast = document.createElement('div');
-    toast.className = `toast toast-${type}`;
-    
-    let icon = '';
-    if (type === 'success') icon = '<span class="material-symbols-outlined">check_circle</span>';
-    else if (type === 'error') icon = '<span class="material-symbols-outlined">error</span>';
-    else if (type === 'warning') icon = '<span class="material-symbols-outlined">warning</span>';
-    else icon = '<span class="material-symbols-outlined">info</span>';
-    
-    toast.innerHTML = `${icon} ${message}`;
-    toastContainer.appendChild(toast);
-    
-    setTimeout(() => {
-        if (toast.parentNode) toast.remove();
-    }, 2700);
-}
 
 // ============================================
 // OFFLINE DETECTION
 // ============================================
 function showOffline() { offlineOverlay.classList.add('active'); }
 function hideOffline() { offlineOverlay.classList.remove('active'); }
-window.addEventListener('online', () => { hideOffline(); showToast('Back online!', 'success'); });
+window.addEventListener('online', hideOffline);
 window.addEventListener('offline', showOffline);
 if (!navigator.onLine) showOffline();
 
@@ -217,12 +184,10 @@ async function loadPlaces() {
         skeletonTrack.style.display = 'flex';
         carouselTrack.style.display = 'none';
         
-        // Get data from Firebase root (since your data is at root)
         const snapshot = await database.ref('/').once('value');
         const data = snapshot.val();
         
         if (data) {
-            // Convert object to array
             places = Object.values(data);
             originalPlaces = JSON.parse(JSON.stringify(places));
             loadUserEdits();
@@ -231,14 +196,12 @@ async function loadPlaces() {
             skeletonTrack.style.display = 'none';
             carouselTrack.style.display = 'flex';
             setupDragScroll();
-            showToast('✅ Places loaded from Firebase!', 'success');
         } else {
             throw new Error('No data found');
         }
     } catch (error) {
         console.error('Error loading places:', error);
         skeletonTrack.style.display = 'none';
-        showToast('⚠️ Failed to load places. Please refresh.', 'error');
         showOffline();
     }
 }
@@ -252,10 +215,7 @@ async function updatePlaceInFirebase(placeId, updatedData) {
         if (placeIndex === -1) return false;
         
         places[placeIndex] = { ...places[placeIndex], ...updatedData };
-        
-        // Update in Firebase at the correct index
         await database.ref(`/${placeIndex}`).update(updatedData);
-        
         return true;
     } catch (error) {
         console.error('Error updating place:', error);
@@ -264,15 +224,19 @@ async function updatePlaceInFirebase(placeId, updatedData) {
 }
 
 // ============================================
-// RENDER CAROUSEL
+// RENDER CAROUSEL - OPTIMIZED
 // ============================================
 function renderCarousel() {
     carouselTrack.innerHTML = '';
     const allPlaces = [...places, ...places, ...places];
+    
+    // Use DocumentFragment for better performance
+    const fragment = document.createDocumentFragment();
     allPlaces.forEach(place => {
         const card = createPlaceCard(place);
-        carouselTrack.appendChild(card);
+        fragment.appendChild(card);
     });
+    carouselTrack.appendChild(fragment);
 }
 
 function createPlaceCard(place) {
@@ -305,7 +269,7 @@ function createPlaceCard(place) {
 }
 
 // ============================================
-// DRAG TO SCROLL
+// SMOOTH DRAG TO SCROLL - OPTIMIZED
 // ============================================
 function setupDragScroll() {
     const container = carouselContainer;
@@ -322,6 +286,7 @@ function setupDragScroll() {
         carouselTrack.style.transition = '';
     }
     
+    // Mouse events with smoother handling
     container.addEventListener('mousedown', (e) => {
         if (e.target.closest('button')) return;
         isDragging = true;
@@ -330,6 +295,7 @@ function setupDragScroll() {
         scrollLeftStart = container.scrollLeft;
         carouselTrack.style.cursor = 'grabbing';
         container.style.cursor = 'grabbing';
+        container.style.scrollBehavior = 'auto';
         e.preventDefault();
     });
     
@@ -337,7 +303,7 @@ function setupDragScroll() {
         if (!isDragging) return;
         e.preventDefault();
         const x = e.pageX - container.offsetLeft;
-        const walk = (x - startX) * 2;
+        const walk = (x - startX) * 1.8;
         container.scrollLeft = scrollLeftStart - walk;
     });
     
@@ -346,8 +312,9 @@ function setupDragScroll() {
         isDragging = false;
         carouselTrack.style.cursor = 'grab';
         container.style.cursor = 'grab';
-        clearTimeout(resumeAutoScroll.timeout);
-        resumeAutoScroll.timeout = setTimeout(resumeAutoScroll, 2000);
+        container.style.scrollBehavior = 'smooth';
+        clearTimeout(dragTimeout);
+        dragTimeout = setTimeout(resumeAutoScroll, 3000);
     });
     
     container.addEventListener('mouseleave', () => {
@@ -355,37 +322,47 @@ function setupDragScroll() {
             isDragging = false;
             carouselTrack.style.cursor = 'grab';
             container.style.cursor = 'grab';
-            clearTimeout(resumeAutoScroll.timeout);
-            resumeAutoScroll.timeout = setTimeout(resumeAutoScroll, 2000);
+            container.style.scrollBehavior = 'smooth';
+            clearTimeout(dragTimeout);
+            dragTimeout = setTimeout(resumeAutoScroll, 3000);
         }
     });
+    
+    // Touch events for mobile - optimized
+    let touchStartX = 0;
+    let touchScrollLeft = 0;
     
     container.addEventListener('touchstart', (e) => {
         if (e.target.closest('button')) return;
         isDragging = true;
         pauseAutoScroll();
-        startX = e.touches[0].pageX - container.offsetLeft;
-        scrollLeftStart = container.scrollLeft;
-    }, { passive: false });
+        touchStartX = e.touches[0].pageX - container.offsetLeft;
+        touchScrollLeft = container.scrollLeft;
+        container.style.scrollBehavior = 'auto';
+    }, { passive: true });
     
     container.addEventListener('touchmove', (e) => {
         if (!isDragging) return;
         const x = e.touches[0].pageX - container.offsetLeft;
-        const walk = (x - startX) * 2;
-        container.scrollLeft = scrollLeftStart - walk;
-    }, { passive: false });
+        const walk = (x - touchStartX) * 1.5;
+        container.scrollLeft = touchScrollLeft - walk;
+    }, { passive: true });
     
     container.addEventListener('touchend', () => {
         isDragging = false;
-        clearTimeout(resumeAutoScroll.timeout);
-        resumeAutoScroll.timeout = setTimeout(resumeAutoScroll, 3000);
-    });
+        container.style.scrollBehavior = 'smooth';
+        clearTimeout(dragTimeout);
+        dragTimeout = setTimeout(resumeAutoScroll, 3000);
+    }, { passive: true });
     
+    // Set initial cursor
     carouselTrack.style.cursor = 'grab';
     container.style.cursor = 'grab';
+    container.style.scrollBehavior = 'smooth';
     
+    // Hover pause
     container.addEventListener('mouseenter', () => {
-        if (!isDragging) {
+        if (!isDragging && isAutoScrolling) {
             carouselTrack.style.animationPlayState = 'paused';
         }
     });
@@ -412,6 +389,7 @@ function performSearch() {
     );
     
     if (filtered.length > 0) {
+        const fragment = document.createDocumentFragment();
         filtered.forEach(place => {
             const resultItem = document.createElement('div');
             resultItem.className = 'search-result-item';
@@ -421,8 +399,9 @@ function performSearch() {
             }
             resultItem.innerHTML = `${imageHtml}<div class="search-result-placeholder" style="${place.images && place.images[0] ? 'display:none;' : 'display:flex;'}">${place.name.charAt(0)}</div><span class="search-result-name">${place.name}</span>`;
             resultItem.addEventListener('click', () => { openDetailsPanel(place.id); searchResults.classList.remove('active'); searchInput.value = ''; });
-            searchResults.appendChild(resultItem);
+            fragment.appendChild(resultItem);
         });
+        searchResults.appendChild(fragment);
         searchResults.classList.add('active');
     } else {
         searchResults.innerHTML = '<div class="no-results">No places found</div>';
@@ -498,7 +477,6 @@ downloadQrBtn.addEventListener('click', () => {
     link.download = `${currentPlaceForQR.name.replace(/\s+/g, '_')}_QR.png`;
     link.href = downloadCanvas.toDataURL('image/png');
     link.click();
-    showToast('QR code downloaded!', 'success');
 });
 
 // ============================================
@@ -520,6 +498,7 @@ function refreshViewMode(place) {
     detailsTitle.textContent = place.name;
     detailsDescription.textContent = place.fullDescription;
     detailsImageGrid.innerHTML = '';
+    const fragment = document.createDocumentFragment();
     for (let i = 0; i < 4; i++) {
         if (place.images && place.images[i]) {
             const img = document.createElement('img');
@@ -532,14 +511,15 @@ function refreshViewMode(place) {
                 openImageViewer(place.images[i]);
             });
             img.onerror = function() { const ph = document.createElement('div'); ph.className = 'details-image-placeholder'; ph.textContent = '📷'; this.parentNode.replaceChild(ph, this); };
-            detailsImageGrid.appendChild(img);
+            fragment.appendChild(img);
         } else {
             const placeholder = document.createElement('div');
             placeholder.className = 'details-image-placeholder';
             placeholder.textContent = '📷';
-            detailsImageGrid.appendChild(placeholder);
+            fragment.appendChild(placeholder);
         }
     }
+    detailsImageGrid.appendChild(fragment);
     detailsDirectionBtn.onclick = () => openDirections(place.latitude, place.longitude);
     detailsQrBtn.onclick = () => openQRModal(place.id);
 }
@@ -616,13 +596,11 @@ document.querySelectorAll('.edit-file-input').forEach(input => {
         reader.onload = function(e) {
             const newSrc = e.target.result;
             if (isDuplicateImage(newSrc)) {
-                showToast('⚠️ This image is already added to another slot!', 'warning');
                 return;
             }
             tempEditImages[slotIndex] = newSrc;
             renderEditImageSlots();
             updateSlotStates();
-            showToast('📷 Image added successfully!', 'success');
         };
         reader.readAsDataURL(file);
         this.value = '';
@@ -634,10 +612,7 @@ btnSave.addEventListener('click', async () => {
     if (!currentPlaceForDetails) return;
     
     const newDescription = editDescription.value.trim();
-    if (!newDescription) {
-        showToast('Please enter a description.', 'error');
-        return;
-    }
+    if (!newDescription) return;
     
     const cleanImages = [];
     tempEditImages.forEach(img => { if (img) cleanImages.push(img); });
@@ -660,9 +635,6 @@ btnSave.addEventListener('click', async () => {
         viewMode.style.display = 'block';
         editMode.style.display = 'none';
         saveUserEdits(placeId, newDescription, cleanImages);
-        showToast('✅ Changes saved to Firebase!', 'success');
-    } else {
-        showToast('❌ Failed to save changes. Please try again.', 'error');
     }
 });
 
@@ -696,9 +668,6 @@ btnReset.addEventListener('click', async () => {
         setupDragScroll();
         viewMode.style.display = 'block';
         editMode.style.display = 'none';
-        showToast('🔄 Reset to original!', 'info');
-    } else {
-        showToast('❌ Failed to reset. Please try again.', 'error');
     }
 });
 
@@ -727,5 +696,3 @@ document.addEventListener('keydown', (e) => {
 // ============================================
 loadPlaces();
 console.log('🚀 Discover Places ready!');
-console.log('🖱️ Drag to scroll cards');
-console.log('📱 Touch swipe supported');
